@@ -5,7 +5,7 @@ from keras.layers import Input, Conv2D, MaxPool2D, BatchNormalization, Dropout, 
 from keras.layers.merge import concatenate, add
 import matplotlib.pyplot as plt
 import os
-import time
+import time  
 
 
 ''' Building AlexNet '''
