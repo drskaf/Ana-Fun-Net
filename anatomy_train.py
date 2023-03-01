@@ -26,13 +26,13 @@ ap.add_argument("-d", "--directory", required=True, help="path to input director
 args = vars(ap.parse_args())
 
 # Load info file
-patient_df = pd.read_csv('/Users/ebrahamalskaf/Documents/**ANATOMY_FUNCTION**/anatomy_function.csv')
+patient_df = pd.read_csv('/Users/ebrahamalskaf/Documents/**ANATOMY_FUNCTION**/info.csv')
 
 # Loading images
-def load_images(directory, im_size):
+def load_images(directory, df, im_size):
     # initialize our images array
     images = []
-    indices = []
+    labels = []
     # Loop over folders and files
     for root, dirs, files in os.walk(directory, topdown=True):
         # Collect perfusion .png images
@@ -58,25 +58,31 @@ def load_images(directory, im_size):
                     gray = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
                     out = gray[..., np.newaxis]
 
-                    indices.append(int(folder))
+                    # Defining labels
+                    if df[df["ID"].values == int(folder)]['MVD'].values == 1:
+                        the_class = 1
+                    elif df[df["ID"].values == int(folder)]['multi_ves'].values == 1:
+                        the_class = 2
+                    else:
+                        the_class = 3
+
                     images.append(out)
+                    labels.append(the_class)
 
-    return (np.array(images), indices)
+    return (np.array(images), np.array(labels))
 
-images, indices = load_images(args["directory"], im_size=224)
-images = images / 255.0
-df = pd.DataFrame(indices, columns=['ID'])
-info_df = pd.merge(df, patient_df, on=['ID'])
-
+(images, labels) = load_images(args["directory"], patient_df, im_size=224)
+le = LabelEncoder().fit(labels)
+labels = to_categorical(le.transform(labels), 3)
 
 # Set parameters
 INPUT_DIM = 224
 WIDTH = 224
 HEIGHT = 672
 BATCH_SIZE = 16
-NUM_EPOCHS = 70
+NUM_EPOCHS = 250
 STEP_PER_EPOCH = 2
-N_CLASSES = 15
+N_CLASSES = 3
 CHECKPOINT_PATH = os.path.join("model_weights", "cp-{epoch:02d}")
 
 #''' Fine tuning step '''
@@ -115,3 +121,49 @@ if gpus:
     for gpu in gpus:
         tf.config.experimental.set_virtual_device_configuration(gpu, [tf.config.experimental.VirtualDeviceConfiguration
                                                                       (memory_limit=4096)])
+
+# Splitting data
+(X_train, X_valid, y_train, y_valid) = train_test_split(images, labels, train_size=0.8, random_state=42)
+
+# Data augmentation
+aug = ImageDataGenerator(samplewise_center=True,samplewise_std_normalization=True,rotation_range=20, width_shift_range=0.1, height_shift_range=0.1, shear_range=0.2, zoom_range
+                         =0.2, horizontal_flip=True, fill_mode="nearest")
+
+v_aug = ImageDataGenerator(samplewise_center=True,samplewise_std_normalization=True)
+
+# Initialise the optimiser and model
+print("[INFO] compiling model ...")
+Opt = Adam(lr=0.001)
+Loss = CategoricalCrossentropy(from_logits=True)
+fa_model = tf_cnns.LeNet.build(WIDTH, HEIGHT, depth=1, classes=N_CLASSES)
+fa_model.compile(loss=Loss, optimizer=Opt, metrics=["accuracy"])
+weigth_path = "{}_my_model.best.hdf5".format("#fa_predictor1")
+checkpoint = ModelCheckpoint(weigth_path, monitor='val_loss', save_best_only=True, mode='min', save_weights_only=False)
+early = EarlyStopping(monitor='val_loss', mode='min', patience=20)
+callbacks_list = [checkpoint]
+
+logdir = "logs/fit/" + datetime.now().strftime("%Y%m%d-%H%M%S")
+tensorboard_callback = TensorBoard(log_dir=logdir, histogram_freq=1)
+
+# Training the model
+print("[INFO] Training the model ...")
+history = fa_model.fit_generator(aug.flow(X_train, y_train, batch_size=BATCH_SIZE), validation_data= v_aug.flow(X_valid, y_valid), epochs=NUM_EPOCHS,
+                  steps_per_epoch=len(X_train )// 16, callbacks=[callbacks_list, tensorboard_callback], verbose=1)
+
+# summarize history for loss
+plt.plot(history.history['accuracy'])
+plt.plot(history.history['val_accuracy'])
+plt.plot(history.history['loss'])
+plt.plot(history.history['val_loss'])
+plt.title('Mortality CNN training')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train accuracy', 'validation accuracy', 'train loss', 'validation loss'], loc='upper left')
+plt.show()
+
+# Saving model data
+model_json = fa_model.to_json()
+with open("fa_model.json", "w") as json_file:
+    json_file.write(model_json)
+
+K.clear_session()
