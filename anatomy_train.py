@@ -42,6 +42,8 @@ def load_images(directory, df, im_size):
             for file in files:
                 if '.DS_Store' in files:
                     files.remove('.DS_Store')
+                if int(folder) not in df['ID'].values:
+                    continue
                 # Loading images
                 file_name = os.path.basename(file)[0]
                 if file_name == 'b':
