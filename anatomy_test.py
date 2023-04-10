@@ -9,7 +9,7 @@ from keras.utils import to_categorical
 from keras.preprocessing.image import ImageDataGenerator
 from keras.models import model_from_json, load_model
 import matplotlib.image as mpimg
-from skimage.transform import resize
+from skimage.transform import resize.   
 import cv2
 from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, roc_curve, classification_report
 import pickle
