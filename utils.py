@@ -4,6 +4,64 @@ from tensorflow.keras.preprocessing.image import img_to_array
 import numpy as np
 import os
 
+def load_perf_data(directory, df, im_size):
+    """
+    Read through .png images in sub-folders, read through label .csv file and
+    annotate
+    Args:
+     directory: path to the data directory
+     df_info: .csv file containing the label information
+     im_size: target image size
+    Return:
+        resized images with their labels
+    """
+    # Initiate lists of images and labels
+    images = []
+    the_class = []
+
+    # Loop over folders and files
+    for root, dirs, files in os.walk(directory, topdown=True):
+
+        # Collect perfusion .png images
+        if len(files) > 1:
+            folder = os.path.split(root)[1]
+            folder_strip = folder.rstrip('_')
+            #print(df["ID"].values)
+            for file in files:
+                if '.DS_Store' in files:
+                    files.remove('.DS_Store')
+                if int(folder_strip) in df["ID"].values:
+                    dir_path = os.path.join(directory, folder)
+                    # Loading images
+                    file_name = os.path.basename(file)[0]
+                    if file_name == 'b':
+                        img1 = mpimg.imread(os.path.join(dir_path, file))
+                        img1 = resize(img1, (im_size, im_size))
+                    elif file_name == 'm':
+                        img2 = mpimg.imread(os.path.join(dir_path, file))
+                        img2 = resize(img2, (im_size, im_size))
+                    elif file_name == 'a':
+                        img3 = mpimg.imread(os.path.join(dir_path, file))
+                        img3 = resize(img3, (im_size, im_size))
+
+                        out = cv2.vconcat([img1, img2, img3])
+                        gray = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+                        gray = resize(gray, (224, 224))
+                        out = cv2.merge([gray, gray, gray])
+                        #out = gray[..., np.newaxis]
+                        #out = np.array(out)
+                        images.append(out)
+
+                        # Defining labels
+                        if df[df["ID"].values == int(folder_strip)]['MVD'].values == 1:
+                            the_class.append(1)
+                        elif df[df["ID"].values == int(folder_strip)]['epi_cad'].values == 1:
+                            the_class.append(2)
+                        else:
+                            the_class.append(3)
+
+    return (np.array(images), np.array(the_class))
+
 class SimplePreprocessor:
     def __init__(self, width, height, inter=cv2.INTER_AREA):
 	    # store the target image width, height, and interpolation
