@@ -30,10 +30,16 @@ args = vars(ap.parse_args())
 
 # Load info file
 patient_df = pd.read_csv('/Users/ebrahamalskaf/Documents/**ANATOMY_FUNCTION**/anatomy_function.csv')
-patient_df['epi_cad'] =  patient_df[['LMS','LAD','LCx','RCA']].apply(lambda x:'{}'.format(np.max(x)),axis=1)
+patient_df['epi_cad'] = patient_df[['LMSf','LAD','LCx','RCA']].apply(lambda x:'{}'.format(np.max(x)),axis=1)
+patient_df['epi_cad'] = patient_df['epi_cad'].astype(int)
 
 (images, labels) = utils.load_perf_data(args["directory"], patient_df, im_size=224)
 print(images.shape)
+print(labels.shape)
+class_weight = class_weight.compute_class_weight('balanced', classes=np.unique(labels), y=labels)
+class_weights = {1 : 4.65217391,
+                 2 : 0.61494253,
+                 3 : 0.86290323}
 le = LabelEncoder().fit(labels)
 labels = to_categorical(le.transform(labels), 3)
 
@@ -61,17 +67,22 @@ else:
     ssl._create_default_https_context = _create_unverified_https_context
 
 from keras.applications.vgg16 import VGG16
+from keras.applications.resnet import ResNet50
+#model = VGG16(include_top=False, input_shape=(HEIGHT, WIDTH, 3), weights='imagenet')
+model = ResNet50(include_top=True, weights='imagenet')
 
-model = VGG16(include_top=False, input_shape=(HEIGHT, WIDTH, 3), weights='imagenet')
-transfer_layer = model.get_layer('block5_pool')
+#transfer_layer = model.get_layer('block5_pool')
+transfer_layer = model.get_layer('conv5_block3_out')
 
 vgg_model = Model(inputs = model.input, outputs = transfer_layer.output)
+resnet_model = Model(inputs = model.input, outputs = transfer_layer.output)
 
-for layer in vgg_model.layers[0:17]:
+#for layer in vgg_model.layers[0:17]:
+ #   layer.trainable = False
+for layer in resnet_model.layers:
     layer.trainable = False
-    
 my_model = Sequential()
-my_model.add(vgg_model)
+my_model.add(resnet_model)
 my_model.add(Flatten())
 my_model.add(Dropout(0.5))
 my_model.add(Dense(1024, activation='relu'))
@@ -104,6 +115,7 @@ def scheduler(epoch, lr):
         return lr * tf.math.exp(-0.1)
 Opt = Adam(lr=0.001)
 Loss = CategoricalCrossentropy(from_logits=True)
+#fa_model = tf_cnns.LeNet.build(WIDTH, HEIGHT, depth=1, classes=N_CLASSES)
 my_model.compile(loss=Loss, optimizer=Opt, metrics=["accuracy"])
 weigth_path = "{}_my_model.best.hdf5".format("models/mvd_epi_Res")
 checkpoint = ModelCheckpoint(weigth_path, monitor='val_loss', save_best_only=True, mode='min', save_weights_only=False)
@@ -117,7 +129,8 @@ tensorboard_callback = TensorBoard(log_dir=logdir, histogram_freq=1)
 # Training the model
 print("[INFO] Training the model ...")
 history = my_model.fit_generator(aug.flow(X_train, y_train, batch_size=BATCH_SIZE), validation_data= v_aug.flow(X_valid, y_valid), epochs=NUM_EPOCHS,
-                  steps_per_epoch=len(X_train )// 16, callbacks=[early, callbacks_list, tensorboard_callback], verbose=1)
+                  steps_per_epoch=len(X_train )// 16, callbacks=[early, callbacks_list, tensorboard_callback], verbose=1,
+                                 class_weight=class_weights)
 
 # summarize history for loss
 plt.plot(history.history['accuracy'])
@@ -127,7 +140,7 @@ plt.plot(history.history['val_loss'])
 plt.title('Mortality CNN training')
 plt.ylabel('accuracy')
 plt.xlabel('epoch')
-plt.legend(['train accuracy', 'validation accuracy', 'train loss', 'validation loss'], loc='upper left')
+plt.legend(['train accuracy', 'validation accuracy', 'train loss', 'validation loss'], loc='upper right')
 plt.show()
 
 # Saving model data
